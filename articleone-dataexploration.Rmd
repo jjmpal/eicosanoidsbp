@@ -1,0 +1,148 @@
+---
+title: "Data exploration"
+author: "Joonatan Palmu"
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE, results='asis', cache=FALSE, warning=FALSE)
+```
+
+```{r library}
+library(knitr)
+library(dplyr)
+library(glmnet)
+library(ggplot2)
+library(broom)
+library(tidyr)
+library(gridExtra)
+library(purrr)
+```
+
+<details>
+  <summary>Open/Close importer</summary>
+
+```{r Source importer, code=readLines("articleone-importer.R")}
+source("articleone-importer.R")
+```
+
+</details>
+
+<details>
+  <summary>Open/Close functions</summary>
+
+```{r Source functions, code=readLines("articleone-functions.R")}
+source("articleone-functions.R")
+```
+
+</details>
+
+```{r Import data}
+dset <- importdata("fr02",
+                   replacenawithmin = TRUE,
+                   normalize = TRUE)
+```
+
+# Main information for all eicosanoids
+
+Data frame has dimensions (`r dset$data.metabolites %>% dim`) and after
+dropping NA:s (`r dset$data.metabolites %>% drop_na() %>% dim`).
+
+```{r Basic properties}
+dset$data.metabolites %>%
+  tidyr::gather(Eicosanoid, Value) %>%
+  group_by(Eicosanoid) %>%
+  summarise_all(., .funs = funs(mean(as.numeric(.), na.rm = TRUE), 
+                                median(as.numeric(.), na.rm = TRUE),
+                                sd(as.numeric(.), na.rm = TRUE),
+                                min(as.numeric(.), na.rm = TRUE),
+                                max(as.numeric(.), na.rm = TRUE),
+                                n = n(),
+                                NAs = sum(is.na(.)),
+                                notNA = n - NAs)) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  kable
+```
+
+# Distribution plots for eicosanoids
+
+```{r Normal distributions}
+distributions <- dset$data.metabolites %>%
+  gather(Eicosanoid, Value)
+
+normaldens <- distributions %>% 
+  dplyr::group_by(Eicosanoid) %>% 
+  do(data.frame( 
+    Value = seq(-4, 4, length = 1000),
+    density = dnorm(seq(-4, 4, length = 1000), 
+                    mean = mean(.$Value, na.rm = TRUE), 
+                    sd = sd(.$Value, na.rm = TRUE))
+  )) 
+```
+
+```{r Distribution plots, fig.width=10, fig.height=100}
+ggplot(distributions, aes_string(x = "Value")) + 
+    facet_wrap(~Eicosanoid, ncol=5) +
+    geom_line(aes(y = density), data = normaldens, colour = "red", size = 1) +
+    geom_density(na.rm = TRUE) + 
+    scale_x_continuous(limits = c(-4, 4)) +
+    scale_y_continuous(limits = c(0,3)) +
+    ggplot2::theme_minimal()
+```
+
+# Scatter plots
+
+```{r}
+scatter <- dset$data.full %>%
+  gather(Eicosanoid, Value, dset$metabolite.mzids) %>%
+  select(Eicosanoid, Value, MAP, AGE, Sample_ID)
+```
+
+```{r lm_eqn}
+lm_eqn <- function(df, mzid){
+  dset <- df %>% dplyr::filter(Eicosanoid == mzid)
+  m <- lm(MAP ~ Value, dset, na.action = "na.omit")
+  eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(coef(m)[1], digits = 2), 
+                        b = format(coef(m)[2], digits = 2), 
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq))
+}
+
+formulas <- data.frame("mzid" = dset$metabolite.mzids) %>%
+    rowwise() %>%
+    do(data.frame(Eicosanoid = .$mzid, fo = lm_eqn(scatter, .$mzid)))
+```
+
+
+```{r scatter, fig.width=10, fig.height=100}
+ggplot(scatter, aes_string(x = "Value", y = "MAP")) + 
+    geom_point(size=0.05) +
+    geom_smooth(method=lm, se=TRUE, size=1, color = 'Red') +
+    facet_wrap(~Eicosanoid, ncol=5) +
+    geom_text(data = formulas, aes(x=-3, y=170, label = fo), parse = TRUE, size = 2, hjust = 0, colour = "red") +
+    xlim(-3, 3) +
+    ylim(50, 175) +
+    ggplot2::theme_minimal()
+```
+
+# Assumptions of Linear Regression
+
+```{r assumptions, results = 'hide'}
+res <- lapply(c2l(dset$metabolite.mzids), function(x) {
+    mod <- lm(as.formula(sprintf("MAP ~ %s + AGE + sex + BMI + curr_smk + curr_diab + HRX + plate", x)), data=dset$data.full)
+    summary(gvlma::gvlma(mod)) %>%
+        as.data.frame %>%
+        tibble::rownames_to_column("id") %>%
+        mutate(res = ifelse(Decision == "Assumptions acceptable.", "Satisfied", "")) %>%
+        select(id, res) %>%
+        spread(id, res) 
+})
+```
+
+```{r assumption table}
+purrr::map_df(res, ~as.data.frame(.x), .id="id") %>% kable
+```

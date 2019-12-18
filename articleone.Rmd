@@ -1,0 +1,466 @@
+---
+title: "Eicosanoids mediators of hypertension"
+author: "Joonatan Palmu"
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+---
+
+```{r options, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE,
+                      results='asis', cache=FALSE, warning=FALSE)
+options(knitr.kable.NA = "")
+now <- format(Sys.time(), '%Y%m%d-%H%M%S')
+```
+
+```{r read last session, include = FALSE, eval = FALSE}
+message("Reading file ", paste0("rds/", sort(list.files("rds"), decreasing = TRUE)[1]))
+load(paste0("rds/", sort(list.files("rds"), decreasing = TRUE)[1]))
+```
+
+```{r Remove temporary data, include = FALSE}
+unlink("cache", recursive=TRUE)
+dir.create("cache", showWarnings = FALSE)
+dir.create("report", showWarnings = FALSE)
+```
+
+# Libraries
+
+<details>
+  <summary>Open/Close</summary>
+
+```{r libraries, results = 'hide'}
+library(knitr)
+library(tidyr)
+library(broom)
+library(dplyr)
+library(parallel)
+library(xtable)
+library(glmnet)
+library(ggplot2)
+library(scales)
+library(magrittr)
+library(forestplot)
+library(survival)
+library(png)
+library(data.table)
+library(tableone)
+library(flextable)
+library(ggrepel)
+library(corrplot)
+library(purrr)
+library(gplots)
+library(ggcorrplot)
+library(Rtsne)
+library(RColorBrewer)
+library(gridExtra)
+library(dendextend)
+library(ggpubr)
+library(readr)
+```
+
+
+</details>
+
+# Functions
+
+<details><summary>Functions</summary>
+
+```{r Functions}
+sourcefiles <- c("articleone-importer.R",
+                 "articleone-functions.R",
+                 "articleone-replication.R",
+                 "articleone-riskscore.R",
+                 "articleone-plots.R",
+                 "articleone-tables.R")
+```
+
+```{r import files, echo = FALSE}
+for (f in sourcefiles) {
+    source(f)
+}
+```
+
+```{r embbed files, echo = FALSE}
+xfun::embed_files(c("rrnmr.Rmd", sourcefiles))
+```
+
+</details>
+
+# Data import
+
+```{r import data}
+dset <- importdata(replacenawithmin = TRUE, normalize = TRUE)
+```
+
+```{r remove, eval = FALSE}
+abund <- readRDS("eicdata/metabolites/fr02-eicosanoids-MAD.rds")
+meta <- readRDS("eicdata/metabolites/fr02-biodatacoreImport-meta.rds")
+
+dat <- merge(meta, abund$data, by.y = "key", by.x = "sample_run_id", all = TRUE)
+
+write.table(dat,
+            file = "FINRISK_EIC_MAD_Norm_EIC_Only.tsv",
+            quote=FALSE,
+            sep='\t',
+            col.names = TRUE,
+            row.names = FALSE)
+
+```
+
+
+# Characteristics
+
+```{r Characteristics}
+characteristics(dset$data.full) %>% kable
+```
+
+# Linear models
+
+## FR02
+
+```{r Linear models}
+linear.lmrank <- calculateglm(dset = dset$data.full, 
+                                           loops = dset$metabolite.mzids,
+                                           responses = c2l("MAP", "SBP", "DBP", "PP", "HT"),
+                                           covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab",
+                                                          "HRX", "plate")) %>%
+    mutate(mzrt = pub.mzrt(term, dset$metabolite.names),
+           qval = bonf.adjust(p.value, n=5))
+
+saveRDS(linear.lmrank, file = "linear.lmrank.Rds")
+```
+
+Total number of `r dset$metabolite.mzids %>% length` eicosanoids
+available and number of eicosanoids with significant associations is
+`r pull.signf(linear.lmrank) %>% length`.
+
+Number of associations per BP indice
+
+```{r print number of associations per BP indice}
+lapply(c2l("MAP", "SBP", "DBP", "PP", "HT"), function(x)
+    linear.lmrank %>% filter(response == x)) %>%
+    purrr::map_df(., ~as.data.frame(.x)) %>%
+    group_by(response) %>%
+    summarize(n = n(),
+              significant = sum(qval < 0.05),
+              proportion = significant/n,
+              positive = sum(qval < 0.05 & estimate > 0),
+              negative = sum(qval < 0.05 & estimate < 0)) %>%
+    kable
+```
+
+
+Effect size of significant associations in FR02
+
+```{r print linear results}
+linear.lmrank %>%
+    filter(qval < 0.05) %>%
+    select(term, response, estimate) %>%
+    mutate(estimate = round(estimate, 3)) %>%
+    spread(response, estimate) %>% 
+    kable
+```
+
+Number of significant associations to map
+
+```{r number of associations for map}
+filter.model(linear.lmrank, plimit = 0.05, filterterm = "SBP") %>%
+    dplyr::mutate(sign = ifelse(estimate >0, 1, -1)) %>%
+    group_by(sign) %>%
+    summarize(n = n()) %>%
+    mutate(prop = round(n/sum(n)*100, 1)) %>%
+    kable
+```
+
+
+## Manhattan plot
+
+For FR02 bonferroni limit for significance is `r 0.05/length(dset$metabolite.mzids)`.
+
+```{r manhattan descriptions}
+manhattanplot <- plot.manhattanplot(filter.model(linear.lmrank),
+                                    bonfp = 0.05/length(dset$metabolite.mzids),
+                                    nlabels = 0)
+ggsave(file = "cache/manhattanplot.png", plot = manhattanplot, height = 6, width = 7, dpi = 300)
+```
+
+<img src = "cache/manhattanplot.png" />
+
+## Heatmap of metabolites
+
+Correlation matrix
+
+```{r correlation matring using ggplot2}
+eicosanoidcorrelation <- spearmancorrelation(dset,
+                                          pull.signf(linear.lmrank, filterterm = "SBP"))
+
+p.mat <- cor_pmat(eicosanoidcorrelation)
+
+ggcorrelation <- ggcorrplot(eicosanoidcorrelation,
+                            p.mat = p.mat,
+                            hc.order = TRUE,
+                            type = "full",
+                            insig = "blank",
+                            pch = 4,
+                            pch.col = "gray",
+                            show.legend = TRUE) +
+    scale_fill_gradientn(name = "Spearman\ncorrelation",
+                         colors = c("blue", "white", "red"),
+                         breaks = c(-1, -0.5, 0, 0.5, 1),
+                         limits = c(-1.1, 1.1)) +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black")) +
+    theme(legend.title = element_text(size = 30),
+          legend.text = element_text(size = 24),
+          legend.key.width = unit(14, "mm"),
+          legend.key.height = unit(20, "mm"),
+          axis.text.x=element_blank(),
+          axis.text.y=element_blank())
+
+ggsave(file = "cache/heatmap.png", plot = ggcorrelation, height = 14, width = 18, dpi = 300)
+```
+<img src = "cache/heatmap.png" />
+
+# Multivariate models
+
+Calculating three regularisation models
+
+```{r Stepwise calculation, results = 'hide'}
+regularisation <- regularisationmodel(dset$data.full,
+                                      pull.signf(linear.lmrank),
+                                      bonfp = 0.05/length(dset$metabolite.mzids))
+```
+
+Number of eicosanoids in three regularisation models
+
+```{r number of eicosanoids in regularisation}
+purrr::map_df(regularisation, ~as.data.frame(.x), .id="id") %>%
+    dplyr::filter(grepl("mzid", term)) %>%
+    group_by(id) %>%
+    summarize(n = n()) %>%
+    spread(id, n) %>%
+    kable
+```
+
+Regularisation results
+
+```{r regularisation results}
+purrr::map_df(regularisation, ~as.data.frame(.x), .id="id") %>%
+    dplyr::filter(grepl("mzid", term)) %>%
+    select(term, id, estimate) %>%
+    spread(id, estimate) %>%
+    mutate_if(is.numeric, round, 3) %>%
+    kable
+```
+
+Results for Bonferroni forward selection
+
+```{r regression bonf kable}
+regularisation$fwdbonf %>%
+    filter(grepl("mzid_", term)) %>%
+    select(term, estimate, conf.low, conf.high, p.value) %>%
+    mutate_if(is.numeric, round, 3) %>%
+    kable
+```
+
+# Replication
+
+```{r results for the six eicosanoids}
+compare.eicosanoids <- mygrep(regularisation$fwdbonf$term, word = "mzid")
+forest.fr02 <- compare.fr02(linear.lmrank, compare.eicosanoids)
+forest.fhs <- compare.fhs()
+```
+
+```{r Comparing six-eicosanoid results}
+full_join(forest.fr02, forest.fhs, by = "term", suffix = c(".fr02", ".fhs")) %>%
+    rename(mzrt = mzrt.fr02, name = name.fr02) %>%
+    select(mzrt, name, mean_ci.fr02, mean_ci.fhs) %>% kable
+```
+
+```{r Plot the forest plot image}
+replicationforestplot(forest.fr02, forest.fhs, file = "cache/forestmap-comparison.png")
+```
+
+<img src = "cache/forestmap-comparison.png" />
+
+# Eicosanoid profiles
+
+## FINRISK
+
+```{r Calculate risk scores}
+rset <- getriskset(dset$data.full, regularisation)
+```
+
+```{r Risk models}
+riskmodel.fr02 <- lapply(list("unadjusted" = c(),
+                              "adjusted" = c("AGE", "sex", "BMI", "curr_smk", "curr_diab")), function(adj)
+                                  calculateglm(dset = rset,
+                                               loops = c("fwdbonf_riskpersd", "fwdbonf_riskclass"),
+                                               covariates = adj,
+                                               responses = c("SBP", "HT"),
+                                               filter = "risk")) %>%
+    purrr::map_df(~as.data.frame(.x), .id="adjustment")
+riskmodel.fhs <- riskmodel.fhs()
+```
+
+P for trend
+
+```{r risk models p for trend}
+calculateglm(dset = rset %>% mutate(fwdbonf_riskclass = as.numeric(fwdbonf_riskclass)),
+             loops = "fwdbonf_riskclass",
+             covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab"),
+             responses = c("SBP", "HT"),
+             filter = "risk") %>%
+    mutate(p.value = pub.p(p.value)) %>%
+    select(response, term, p.value) %>%
+    kable
+```
+
+Risk model results for fr02
+
+```{r risk model results}
+riskmodel.fr02 %>%
+    select(adjustment, term, response, estimate, conf.low, conf.high, p.value) %>%
+    kable
+```
+
+```{r risk model hypertensive per class}
+rset %>% group_by(fwdbonf_riskclass) %>% summarize(htn = sum(HT == 1), n=n()) %>% kable
+```
+
+## FHS
+
+```{r replication for FHS}
+riskmodel.fhs %>%
+    select(adjustment, term, response, estimate, conf.low, conf.high, p.value) %>%
+    kable
+```
+
+## Comparing results
+
+```{r Plot risk models}
+plot.riskmodel(riskmodel.fhs,
+               riskmodel.fr02,
+               variable = "HT",
+               ylab = "Odds for hypertension (95% CI)",
+               file = "cache/riskforest-htn.png")
+```
+
+<img src = "cache/riskforest-htn.png" />
+
+```{r Plot risk models SBP}
+plot.riskmodel(riskmodel.fhs,
+               riskmodel.fr02,
+               variable = "SBP",
+               ylab = "Effect size for systolic BP (95% CI)",
+               file = "cache/riskforest-sbp.png")
+```
+
+<img src = "cache/riskforest-sbp.png" />
+
+```{r proportions, eval = FALSE, include = FALSE}
+risksetpre.fr02  <- rset %>%
+    group_by(fwdbonf_riskclass) %>%
+    summarize(ht = sum(HT == 1), nt = sum(HT == 0), n = ht+nt) %>%
+    mutate(cohort = "FINRISK")
+
+risksetpre.fhs <- rset %>%
+    sample_n(2000) %>%
+    group_by(fwdbonf_riskclass) %>%
+    summarize(ht = sum(HT == 1), nt = sum(HT == 0), n = ht+nt) %>%
+    mutate(cohort = "FHS")
+
+risksetpre <- rbind(risksetpre.fr02, risksetpre.fhs) %>%
+    rename(class = fwdbonf_riskclass) %>%
+    gather(key, value, ht, nt, -cohort, -n) %>%
+    mutate(key = relevel(as.factor(key), ref = "nt"))
+
+g.proportion <- ggplot(risksetpre,
+                       aes(x = class,
+                           y = value/n,
+                           fill = key)) +
+    facet_wrap(~cohort) +
+    geom_bar(stat = 'identity') +
+    scale_x_discrete(labels=c("1" = "Q1",
+                              "2" = "Q2",
+                              "3" = "Q3",
+                              "4" = "Q4")) +
+    scale_fill_manual(name = "",
+                      labels = c("Normotensive", "Hypertensive"),
+                      breaks = c("nt", "ht"),
+                      values = c("blue", "red")) +
+    scale_y_continuous(limits=c(0, 1), breaks = c(0, 0.5, 1)) +
+    xlab("") +
+    ylab("") +
+    theme_classic() +
+    theme(strip.background = element_blank(),
+          strip.placement = "outside")
+
+ggsave(file = "cache/riskforest-prop.png", plot = g.proportion, height = 3, width = 4, dpi = 300)
+```
+
+# Kaplan-Mayer plot
+
+```{r kaplanmayer}
+library(emmeans)
+library(survival)
+library(survminer)
+
+res.cox <- coxph(Surv(dthtime, dth) ~ fwdbonf_riskclass + AGE + sex +
+                     tot_chol + hdl_chol + curr_smk + curr_diab +
+                     HRX + MAP,
+                 data = rset)
+
+coxret %>% tidy(exponentiate = TRUE)
+
+fit2 <- survfit(Surv(dthtime, dth) ~ fwdbonf_riskclass, data = rset)
+ggsurvplot(fit2, data = rset, pval = TRUE, ylim = c(0.8, 1))
+
+fit2 <- survfit(Surv(CVD_AGEDIFF, CVD) ~ fwdbonf_riskclass, data = rset %>% filter(PREVAL_CVD == 0))
+ggsurvplot(fit2, data = rset, pval = TRUE, ylim = c(0.8, 1))
+
+colnames(rset) %>% mygrep(word = "cvd")
+```
+
+
+
+# Supplement
+
+## Linear and logistic regression results in FR02
+
+```{r linear results for supplement}
+linear.lmrank.names <-
+    dset$metabolite.names %>%
+    mutate(name = gsub("Novel EIC_", "Novel-", name),
+           name = gsub("EIC_", "Putative-", name),
+           name = gsub("Eicosanoid_", "", name),
+           name = gsub("FFA", "", name),
+           name = gsub(" *\\[M-H\\]", "", name),
+           name = gsub("[ _]", "", name),
+           name = gsub(" ", "-", name),
+           name = gsub(";", "; ", name),
+           name = gsub("alpha", "α", name))
+    
+sup.linres <- pub.lmrank(linear.lmrank) %>%
+    right_join(linear.lmrank.names, ., by = c("mzid" = "term")) %>%
+    select(-mzid)
+
+typology.tbls2 <- data.frame(
+  col_keys = colnames(sup.linres),
+  what = c( "", "", "",
+           rep("MAP", 2), 
+            rep("Systolic BP", 2), 
+            rep("Diastolic BP", 2), 
+            rep("Pulse pressure", 2), 
+            rep("Hypertension", 2)),
+  measure = c("Eicosanoid", "M/Z", "RT", rep(c("β±SE", "p"), 5)),
+  stringsAsFactors = FALSE)
+
+typologyformatter(data = sup.linres, font = 9, typology = typology.tbls2)
+```
+
+```{r Write docx to file, results = FALSE, include = FALSE}
+save.image(file = paste0("rds/session-", now, ".Rdata"))
+```
+
