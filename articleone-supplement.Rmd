@@ -1,0 +1,159 @@
+---
+title: "Article One - Supplementary"
+editor_options:
+  chunk_output_type: console
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r options, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = FALSE, results='asis', cache=FALSE)
+knitr::opts_chunk$set(cache.path = 'cache/sup/', output.dir="cache/sup/", 
+                      file.path = 'cache/sup/', fig.path = 'cache/sup/')
+```
+
+# LIBRARIES
+
+```{r libraries, include=FALSE, cache = FALSE}
+library("turkumetabolites")
+library("knitr")
+library("tidyr")
+library("dplyr")
+library("parallel")
+library("officer")
+library("flextable")
+library("xtable")
+library("glmnet")
+library("ggplot2")
+library("magrittr")
+library("broom")
+```
+
+# DATA IMPORT
+
+```{r import data, include=FALSE}
+dset <- readRDS("rds/articleone-dset.rds")
+linear.lmrank <- readRDS("rds/articleone-linearmodels.rds")
+linear.lmrank.fhs <- readRDS("rds/articleone-linearmodels-fhs.rds")
+regularisation <- readRDS("rds/articleone-regularisation.rds")
+```
+
+# DOCX INITIALIZATION
+
+```{r Initialize docx, cache = FALSE}
+supplementary <- read_docx(path = "style/articlestyle.docx") %>%
+  body_remove()
+```
+
+## TABLE 1 Characteristics
+
+```{r Supplementary characteristics}
+characteristics.sup <- turkumetabolites::characteristics(dset$fhs, type = "fhs")
+
+tbl1.sup <- turkumetabolites::xtableformatter(characteristics.sup) %>%
+    flextable::width(j = 1, width = 3) %>%
+    flextable::width(j = 2, width = 1.2) 
+```
+
+```{r Supplementary characteristics write, include = TRUE, cache = FALSE}
+tbl1head.sup <- "Table 1. Characteristics of Framingham Heart Study Offspring Cohort at exam cycle 8."
+tbl1foot.sup<- "Continuous variables are presented as mean (standard deviation). Categorical variables reported as absolute and relative frequencies. BMI indicates body mass index."
+
+supplementary <- supplementary %>% 
+  body_add_par(tbl1head.sup, style = "Table Caption") %>%
+  body_add_flextable(tbl1.sup, align = "left") %>%
+  body_add_par(tbl1foot.sup, style = "footnote text") %>%
+  body_add_break(pos = "after")
+tbl1.sup
+```
+
+## TABLE 2 All results of model 2
+
+```{r}
+allruns.unamb <- turkumetabolites::unambiguous.lmrank(dset$fr02, linear.lmrank)
+allruns.sup <- turkumetabolites::pub.lmrank(allruns.unamb,  p = 0.05/330)
+
+typology.tbl2 <- data.frame(
+  col_keys = colnames(allruns.sup),
+  what = c( "", rep("MAP", 2), 
+            rep("Systolic BP", 2), 
+            rep("Diastolic BP", 2), 
+            rep("Pulse pressure", 2), 
+            rep("Hypertension", 2)),
+  measure = c("Eicosanoid", rep(c("β±SE", "p"), 5)),
+  stringsAsFactors = FALSE)
+
+tbl2.sup <- turkumetabolites::typologyformatter(data = allruns.sup, font = 9, typology = typology.tbl2) %>%
+  flextable::width(j = 1, width = 1.0) %>%
+  flextable::width(j = c(2:2,4:4,6:6,8:8,10:10), width = 0.7) %>%
+  flextable::width(j = c(3:3,5:5,7:7,9:9,11:11), width = 0.7)
+```
+
+```{r, include =  TRUE, cache = FALSE}
+tbl2head <- "Table 2. Association of eicosanoids with mean arterial pressure, systolic blood pressure, diastolic blood pressure, pulse pressure and hypertension."
+tbl2foot <- "The relation between each eicosanoid and blood pressure variables was analyzed in separate linear regression models with age, sex, BMI, current smoking, diabetes, antihypertensive medication, and batch as covariates. "
+supplementary <- supplementary %>% 
+  body_add_par(tbl2head, style = "Table Caption") %>%
+  body_add_flextable(tbl2.sup, align = "center") %>%
+  body_add_par(tbl2foot, style = "footnote text") %>%
+  body_add_break(pos = "after")
+tbl2.sup
+```
+
+## Supplement 3: regularisations
+
+```{r, cache = FALSE}
+regruns <- 
+  Reduce(function(...) merge(..., by = "term", all=TRUE), regularisation) %>%
+  dplyr::filter(grepl("mzid", term) & !(is.zero(estimate) & is.na(estimate.x) & is.na(estimate.y))) %>%
+  dplyr::mutate(mzrt = pub.mzrt(term, "*"),
+                tentative = "",
+                betase.bonf = ifelse(is.na(estimate.x), NA, sprintf("%.2f±%.2f", estimate.x, std.error.x)),
+                rank.bonf = dense_rank(p.value.x),
+                lasso = ifelse(is.na(estimate), NA, ifelse(abs(estimate) < 0.01, sprintf("%.3f", estimate), sprintf("%.2f", estimate))),
+                betase.aic = ifelse(is.na(estimate.y), NA, sprintf("%.2f±%.2f", estimate.y, std.error.y)), 
+                rank.aic = dense_rank(p.value.y),
+                order = ifelse(is.na(p.value.x), 1, percent_rank(p.value.x)) + 
+                  ifelse(is.na(p.value.y), 1, percent_rank(p.value.y))) %>%
+  dplyr::arrange(order) %>%
+  dplyr::select(mzrt, tentative, betase.bonf, rank.bonf, lasso, betase.aic, rank.aic)
+
+regruns[is.na(regruns)] <- ""
+
+```
+
+```{r Table 3}
+typology.tbl3 <- data.frame(
+  col_keys = colnames(regruns),
+  what = c(
+    "", 
+    "",
+    rep("Model based on forward selection with Bonferroni-corrected threshold", 2), 
+    rep("Model based on LASSO selection", 1), 
+    rep("Model based on forward selection aiming at maximum model AIC", 2)),
+  measure = c( "Eicosanoid", "Tentative Sub Class", "β±SE", "rank", "β", "β±SE", "rank"),
+  stringsAsFactors = FALSE)
+
+tbl3.sup <- turkumetabolites::typologyformatter(data = regruns, typology = typology.tbl3) %>%
+  flextable::width(j = 1, width = 1.7) %>%
+  flextable::width(j = 2:6, width = 0.9)
+tbl3.sup
+```
+
+```{r, include =  TRUE, cache = FALSE}
+tbl3head <- "Table 3. Multivariable associations between eicosanoids and mean arterial pressure with three different methods of model selection."
+tbl3foot <- "Age, sex, BMI, current smoking, diabetes, antihypertensive medication, and batch were forced in the model as covariates. Rank is the order of p-values starting from the most significant, and the eicosanoids are arranged in the table by their average rank. LASSO indicates least absolute shrinkage and selection operator; AIC, Akaike information criterion. A p-value of 0.05/330 was used was used as the inclusion/exclusion criteria in the model based on forward selection with Bonferroni-corrected threshold."
+supplementary <- supplementary %>% 
+  body_add_par(tbl3head, style = "Table Caption") %>%
+  body_add_flextable(tbl3.sup, align = "left") %>%
+  body_add_par(tbl3foot, style = "footnote text")
+```
+
+<!-- GENERATE DOCX -->
+
+```{r Write docx to file, cache = FALSE}
+print(supplementary, target = "articleone-supplementary.docx")
+```
