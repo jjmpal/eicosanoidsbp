@@ -1,12 +1,3 @@
-mycolors <- function(i) {
-  colors <- list("red" = "#FF7575",
-                 "blue" = "#4B81B6",
-                 "gray" = "#bebebe",
-                 "white" = "#FFFAFA",
-                 "purewhite" = "#FFFFFF")
-  get(i, colors)
-}
-
 mzrt2mz <- function(mzid) {
   mzid %>%
     gsub("mzid_", "", .) %>%
@@ -18,11 +9,12 @@ plot.manhattanplot <- function(linres,
                                bonfp = NULL,
                                response = "SBP",
                                nlabels = 10,
+                               pointsize = 1.0,
                                xlab = "Eicosanoids Rank Ordered by Mass to Charge Ratio",
                                ylab = "Negative Log P Value",
-                               color_scheme = c("positive" = mycolors("red"),
-                                                "negative" = mycolors("blue"),
-                                                "insignificant" = mycolors("gray"))) {
+                               color_scheme = c("positive" = "red",
+                                                "negative" = "blue",
+                                                "insignificant" = "gray")) {
     dat <- linres %>%
     dplyr::filter(response == "SBP", grepl('^mzid', term)) %>%
     dplyr::arrange(term) %>%
@@ -39,7 +31,7 @@ plot.manhattanplot <- function(linres,
   ggplot2::ggplot(dat, ggplot2::aes(x = mz, y = neg_log10_pvalue)) +
     ggplot2::ylab(ylab) +
     ggplot2::xlab(xlab) +
-    ggplot2::geom_point(ggplot2::aes(color = coloring), size = 1.5) +
+    ggplot2::geom_point(ggplot2::aes(color = coloring), size = pointsize) +
     ggrepel::geom_text_repel(data = label_dat,
                              ggplot2::aes(label = mzrt),
                              segment.size = 0.1,
@@ -59,17 +51,17 @@ plot.manhattanplot <- function(linres,
 }
 
 spearmancorrelation  <- function(data, mzids) {
-  dat <- data$data.full %>% dplyr::select(mzids)
-  colnames(dat) <- colnames(dat) %>% pub.mzrt(., data$metabolite.names)
-  cor <- cor(dat, method = 'spearman')
+    dat <- data$data.full %>% dplyr::select(mzids)
+    colnames(dat) <- colnames(dat) %>% pub.mzrt.naive
+    cor <- cor(dat, method = 'spearman')
 }
 
 replicationforestplot <- function(forest.fr02, forest.fhs, file) {
-    png(width = 1600, height = 700, res = 150, file = file)
+    png(width = 1600, height = 780, res = 150, file = file)
     forestplot::forestplot(
-                    labeltext = cbind(c("Eicosanoid", "", forest.fhs$name),
-                                      c("FINRISK\n β (95% CI)", "", forest.fr02$mean_ci),
-                                      c("FHS\n β (95% CI)", "", forest.fhs$mean_ci)),
+                    labeltext = cbind(c("Eicosanoid", NA, forest.fhs$name),
+                                      c("FINRISK\n β (95% CI)", NA, forest.fr02$mean_ci),
+                                      c("FHS\n β (95% CI)", NA, forest.fhs$mean_ci)),
                     mean = cbind(c(NA, NA, forest.fr02$estimate),
                                  c(NA, NA, forest.fhs$estimate)),
                     lower = cbind(c(NA, NA, forest.fr02$conf.low),
@@ -78,7 +70,7 @@ replicationforestplot <- function(forest.fr02, forest.fhs, file) {
                                   c(NA, NA, forest.fhs$conf.high)),
                     legend = c("FINRISK", "FHS"),
                     align = c("l", "l", "l"),
-                    graph.pos = 4,
+                    graph.pos = 3,
                     title = "",
                     xlog = FALSE,
                     xlab = " β (95%-CI)",
@@ -88,11 +80,11 @@ replicationforestplot <- function(forest.fr02, forest.fhs, file) {
                                      title = gpar(cex = 1.2)),
                     xticks = seq(-1, 4),
                     clip =c(-1, 4),
-                    col = fpColors(box=c("blue", "darkred")),
+                    col = fpColors(box=c("#0433ff", "#ff2500")),
                     zero = 0, 
-                    lineheight = unit(14, "mm"), 
-                    boxsize = 0.2, 
-                    colgap = unit(8, "mm"),
+                    lineheight = unit(16, "mm"),
+                    boxsize = 0.15,
+                    colgap = unit(4, "mm"),
                     lwd.ci = 1)
     dev.off()
 }
@@ -115,7 +107,7 @@ plot.riskmodel <- function(riskmodel.fhs,
                                           y = estimate,
                                           ymin = conf.low,
                                           ymax = conf.high,
-                                          col = cohort)) +
+                                          col = factor(cohort, c("FINRISK", "FHS")))) +
         facet_wrap(~adjustment,
                    strip.position = "top", 
                    labeller = as_labeller(c("unadjusted" = "Unadjusted",

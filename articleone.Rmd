@@ -55,8 +55,17 @@ library(gridExtra)
 library(dendextend)
 library(ggpubr)
 library(readr)
+library(heatmaply)
 ```
 
+
+</details>
+
+<details><summary>Session</summary>
+
+```{r Session info}
+sessionInfo()
+```
 
 </details>
 
@@ -91,22 +100,6 @@ xfun::embed_files(c("rrnmr.Rmd", sourcefiles))
 dset <- importdata(replacenawithmin = TRUE, normalize = TRUE)
 ```
 
-```{r remove, eval = FALSE}
-abund <- readRDS("eicdata/metabolites/fr02-eicosanoids-MAD.rds")
-meta <- readRDS("eicdata/metabolites/fr02-biodatacoreImport-meta.rds")
-
-dat <- merge(meta, abund$data, by.y = "key", by.x = "sample_run_id", all = TRUE)
-
-write.table(dat,
-            file = "FINRISK_EIC_MAD_Norm_EIC_Only.tsv",
-            quote=FALSE,
-            sep='\t',
-            col.names = TRUE,
-            row.names = FALSE)
-
-```
-
-
 # Characteristics
 
 ```{r Characteristics}
@@ -125,8 +118,6 @@ linear.lmrank <- calculateglm(dset = dset$data.full,
                                                           "HRX", "plate")) %>%
     mutate(mzrt = pub.mzrt(term, dset$metabolite.names),
            qval = bonf.adjust(p.value, n=5))
-
-saveRDS(linear.lmrank, file = "linear.lmrank.Rds")
 ```
 
 Total number of `r dset$metabolite.mzids %>% length` eicosanoids
@@ -171,6 +162,55 @@ filter.model(linear.lmrank, plimit = 0.05, filterterm = "SBP") %>%
     kable
 ```
 
+## Regularisation
+
+```{r Stepwise calculation, results = 'hide'}
+regularisation <- regularisationmodel(dset$data.full,
+                                      pull.signf(linear.lmrank),
+                                      bonfp = 0.05/length(dset$metabolite.mzids))
+```
+
+
+## Heatmap of metabolites
+
+Correlation matrix
+
+```{r heatmap for supplement}
+my_palette <- colorRampPalette(c("blue", "white", "red"))(n = 300)
+
+eicosanoidcorrelation <- spearmancorrelation(dset, pull.signf(linear.lmrank, filterterm = "SBP"))
+
+mark.position <- mygrep(regularisation$fwdbonf$term, word = "mzid") %>% pub.mzrt.naive
+markings <- eicosanoidcorrelation
+markings[] <- NA
+diag(markings)[mark.position] <- "*"
+
+png(height = 1560, width = 1200, pointsize = 14, res = 300, file = "cache/heatmap.png")
+gplots::heatmap.2(eicosanoidcorrelation,
+                  cellnote = markings,
+                  notecex = 2,
+                  notecol = "black",
+                  distfun = dist,
+                  hclustfun = hclust,
+                  trace = "none",
+                  col = my_palette,
+                  dendrogram = "column",
+                  density.info = "none",
+                  labCol = NA,
+                  labRow = NA,
+                  asp = 1,
+                  lmat = rbind(c(0, 3), c(2, 1), c(0, 4)),
+                  lhei = c(2, 10, 1),
+                  lwid = c(0.001, 9),
+                  margins = c(0, 0),
+                  key.par = list(mar=c(2.0, 2.8, 0.5, 2.8), cex=0.5),
+                  keysize=0.5,
+                  key.title = NA,
+                  key.xlab = "")
+dev.off()
+```
+
+<img src = "cache/heatmap.png" />
 
 ## Manhattan plot
 
@@ -185,52 +225,7 @@ ggsave(file = "cache/manhattanplot.png", plot = manhattanplot, height = 6, width
 
 <img src = "cache/manhattanplot.png" />
 
-## Heatmap of metabolites
-
-Correlation matrix
-
-```{r correlation matring using ggplot2}
-eicosanoidcorrelation <- spearmancorrelation(dset,
-                                          pull.signf(linear.lmrank, filterterm = "SBP"))
-
-p.mat <- cor_pmat(eicosanoidcorrelation)
-
-ggcorrelation <- ggcorrplot(eicosanoidcorrelation,
-                            p.mat = p.mat,
-                            hc.order = TRUE,
-                            type = "full",
-                            insig = "blank",
-                            pch = 4,
-                            pch.col = "gray",
-                            show.legend = TRUE) +
-    scale_fill_gradientn(name = "Spearman\ncorrelation",
-                         colors = c("blue", "white", "red"),
-                         breaks = c(-1, -0.5, 0, 0.5, 1),
-                         limits = c(-1.1, 1.1)) +
-    theme(panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank(),
-          panel.background = element_blank(),
-          axis.line = element_line(colour = "black")) +
-    theme(legend.title = element_text(size = 30),
-          legend.text = element_text(size = 24),
-          legend.key.width = unit(14, "mm"),
-          legend.key.height = unit(20, "mm"),
-          axis.text.x=element_blank(),
-          axis.text.y=element_blank())
-
-ggsave(file = "cache/heatmap.png", plot = ggcorrelation, height = 14, width = 18, dpi = 300)
-```
-<img src = "cache/heatmap.png" />
-
 # Multivariate models
-
-Calculating three regularisation models
-
-```{r Stepwise calculation, results = 'hide'}
-regularisation <- regularisationmodel(dset$data.full,
-                                      pull.signf(linear.lmrank),
-                                      bonfp = 0.05/length(dset$metabolite.mzids))
-```
 
 Number of eicosanoids in three regularisation models
 
@@ -241,6 +236,10 @@ purrr::map_df(regularisation, ~as.data.frame(.x), .id="id") %>%
     summarize(n = n()) %>%
     spread(id, n) %>%
     kable
+```
+
+```{r regularisation eicosanoids}
+compare.eicosanoids <- mygrep(regularisation$fwdbonf$term, word = "mzid")
 ```
 
 Regularisation results
@@ -258,16 +257,17 @@ Results for Bonferroni forward selection
 
 ```{r regression bonf kable}
 regularisation$fwdbonf %>%
-    filter(grepl("mzid_", term)) %>%
-    select(term, estimate, conf.low, conf.high, p.value) %>%
-    mutate_if(is.numeric, round, 3) %>%
+    mutate(response = "SBP") %>%
+    compare.fr02(compare.eicosanoids) %>%
+    select(mzrt, name, contains("mean_ci"), contains("p.value")) %>%
+    mutate_at(vars(contains("p.value")), .funs = format,  digits=3, scientific=TRUE) %>%
+    arrange(mzrt) %>%
     kable
 ```
 
 # Replication
 
 ```{r results for the six eicosanoids}
-compare.eicosanoids <- mygrep(regularisation$fwdbonf$term, word = "mzid")
 forest.fr02 <- compare.fr02(linear.lmrank, compare.eicosanoids)
 forest.fhs <- compare.fhs()
 ```
@@ -275,10 +275,15 @@ forest.fhs <- compare.fhs()
 ```{r Comparing six-eicosanoid results}
 full_join(forest.fr02, forest.fhs, by = "term", suffix = c(".fr02", ".fhs")) %>%
     rename(mzrt = mzrt.fr02, name = name.fr02) %>%
-    select(mzrt, name, mean_ci.fr02, mean_ci.fhs) %>% kable
+    select(mzrt, name, contains("mean_ci"), contains("p.value")) %>%
+    mutate_at(vars(contains("p.value")), .funs = format,  digits=3, scientific=TRUE) %>%
+    arrange(mzrt) %>%
+    
+    kable
 ```
 
 ```{r Plot the forest plot image}
+forest.reg <- compare.fr02(regularisation$fwdbonf %>% mutate(response = "SBP"), compare.eicosanoids)
 replicationforestplot(forest.fr02, forest.fhs, file = "cache/forestmap-comparison.png")
 ```
 
@@ -288,11 +293,8 @@ replicationforestplot(forest.fr02, forest.fhs, file = "cache/forestmap-compariso
 
 ## FINRISK
 
-```{r Calculate risk scores}
-rset <- getriskset(dset$data.full, regularisation)
-```
-
 ```{r Risk models}
+rset <- getriskset(dset$data.full, regularisation)
 riskmodel.fr02 <- lapply(list("unadjusted" = c(),
                               "adjusted" = c("AGE", "sex", "BMI", "curr_smk", "curr_diab")), function(adj)
                                   calculateglm(dset = rset,
@@ -301,7 +303,7 @@ riskmodel.fr02 <- lapply(list("unadjusted" = c(),
                                                responses = c("SBP", "HT"),
                                                filter = "risk")) %>%
     purrr::map_df(~as.data.frame(.x), .id="adjustment")
-riskmodel.fhs <- riskmodel.fhs()
+riskmodel.fhs <- riskmodel.results.fhs()
 ```
 
 P for trend
@@ -359,105 +361,31 @@ plot.riskmodel(riskmodel.fhs,
 
 <img src = "cache/riskforest-sbp.png" />
 
-```{r proportions, eval = FALSE, include = FALSE}
-risksetpre.fr02  <- rset %>%
-    group_by(fwdbonf_riskclass) %>%
-    summarize(ht = sum(HT == 1), nt = sum(HT == 0), n = ht+nt) %>%
-    mutate(cohort = "FINRISK")
-
-risksetpre.fhs <- rset %>%
-    sample_n(2000) %>%
-    group_by(fwdbonf_riskclass) %>%
-    summarize(ht = sum(HT == 1), nt = sum(HT == 0), n = ht+nt) %>%
-    mutate(cohort = "FHS")
-
-risksetpre <- rbind(risksetpre.fr02, risksetpre.fhs) %>%
-    rename(class = fwdbonf_riskclass) %>%
-    gather(key, value, ht, nt, -cohort, -n) %>%
-    mutate(key = relevel(as.factor(key), ref = "nt"))
-
-g.proportion <- ggplot(risksetpre,
-                       aes(x = class,
-                           y = value/n,
-                           fill = key)) +
-    facet_wrap(~cohort) +
-    geom_bar(stat = 'identity') +
-    scale_x_discrete(labels=c("1" = "Q1",
-                              "2" = "Q2",
-                              "3" = "Q3",
-                              "4" = "Q4")) +
-    scale_fill_manual(name = "",
-                      labels = c("Normotensive", "Hypertensive"),
-                      breaks = c("nt", "ht"),
-                      values = c("blue", "red")) +
-    scale_y_continuous(limits=c(0, 1), breaks = c(0, 0.5, 1)) +
-    xlab("") +
-    ylab("") +
-    theme_classic() +
-    theme(strip.background = element_blank(),
-          strip.placement = "outside")
-
-ggsave(file = "cache/riskforest-prop.png", plot = g.proportion, height = 3, width = 4, dpi = 300)
-```
-
-# Kaplan-Mayer plot
-
-```{r kaplanmayer}
-library(emmeans)
-library(survival)
-library(survminer)
-
-res.cox <- coxph(Surv(dthtime, dth) ~ fwdbonf_riskclass + AGE + sex +
-                     tot_chol + hdl_chol + curr_smk + curr_diab +
-                     HRX + MAP,
-                 data = rset)
-
-coxret %>% tidy(exponentiate = TRUE)
-
-fit2 <- survfit(Surv(dthtime, dth) ~ fwdbonf_riskclass, data = rset)
-ggsurvplot(fit2, data = rset, pval = TRUE, ylim = c(0.8, 1))
-
-fit2 <- survfit(Surv(CVD_AGEDIFF, CVD) ~ fwdbonf_riskclass, data = rset %>% filter(PREVAL_CVD == 0))
-ggsurvplot(fit2, data = rset, pval = TRUE, ylim = c(0.8, 1))
-
-colnames(rset) %>% mygrep(word = "cvd")
-```
-
-
-
 # Supplement
 
 ## Linear and logistic regression results in FR02
 
 ```{r linear results for supplement}
-linear.lmrank.names <-
-    dset$metabolite.names %>%
-    mutate(name = gsub("Novel EIC_", "Novel-", name),
-           name = gsub("EIC_", "Putative-", name),
-           name = gsub("Eicosanoid_", "", name),
-           name = gsub("FFA", "", name),
-           name = gsub(" *\\[M-H\\]", "", name),
-           name = gsub("[ _]", "", name),
-           name = gsub(" ", "-", name),
-           name = gsub(";", "; ", name),
-           name = gsub("alpha", "α", name))
-    
+linear.lmrank.names <- dset$metabolite.names %>% select(mzid, MZ, RT)
+
 sup.linres <- pub.lmrank(linear.lmrank) %>%
     right_join(linear.lmrank.names, ., by = c("mzid" = "term")) %>%
     select(-mzid)
 
 typology.tbls2 <- data.frame(
   col_keys = colnames(sup.linres),
-  what = c( "", "", "",
+  what = c("", "",
+           rep("Systolic BP", 2), 
+           rep("Diastolic BP", 2), 
            rep("MAP", 2), 
-            rep("Systolic BP", 2), 
-            rep("Diastolic BP", 2), 
-            rep("Pulse pressure", 2), 
-            rep("Hypertension", 2)),
-  measure = c("Eicosanoid", "M/Z", "RT", rep(c("β±SE", "p"), 5)),
-  stringsAsFactors = FALSE)
+           rep("Pulse pressure", 2), 
+           rep("Hypertension", 2)),
+  measure = c("MZ", "RT", rep(c("β±SE", "p"), 5)),
+  stringsAsFactors = FALSE) 
 
-typologyformatter(data = sup.linres, font = 9, typology = typology.tbls2)
+typologyformatter(data = sup.linres, font = 9, typology = typology.tbls2) %>%
+        colformat_num(., col_keys = c("MZ", "RT"), digits = 4)
+
 ```
 
 ```{r Write docx to file, results = FALSE, include = FALSE}

@@ -3,9 +3,9 @@ compare.names <- function() {
             "mzid_339.179900_1.7205", "11-dehydro-2,3-dinor-TXB2",
             "mzid_279.196600_3.7247", "12-HHTrE",
             "mzid_295.227900_4.8902", "295.2279/4.89 (putative eicosanoid)",
-            "mzid_319.228000_5.6733", "5,6-EET",
-            "mzid_331.267900_6.5274", "Adrenic Acid",
-            "mzid_265.181000_3.5705", "Tetranor-12(R)-HETE")
+            "mzid_319.228000_5.6733", "319.2280/5.67 (unknown)",
+            "mzid_331.267900_6.5274", "Adrenic acid",
+            "mzid_265.181000_3.5705", "265.1810/3.57 (putative eicosanoid)")
 }
 
 compare.fhs <- function() {
@@ -23,7 +23,7 @@ compare.fhs <- function() {
         arrange(name)
 }
 
-riskmodel.fhs <- function() {
+riskmodel.results.fhs <- function() {
     tribble(
         ~adjustment, ~response, ~term, ~estimate, ~std.error, ~statistic, ~p.value, ~conf.low, ~conf.high,
         "adjusted", "HT", "fwdbonf_riskclass2", 1.267338843, 0.117173977, 2.021944707, 0.043182064, 1.007414265, 1.59493293,
@@ -43,6 +43,7 @@ riskmodel.fhs <- function() {
         "adjusted", "SBP", "fwdbonf_riskpersd", 2.215848154, 0.305864072, 7.244551944, 5.56E-13, 1.61636559, 2.815330719,
         "unadjusted", "SBP", "fwdbonf_riskpersd", 2.721582913, 0.318103303, 8.555657498, 1.88E-17, 2.098111895, 3.345053931)
 }
+
 
 compare.fr02 <- function(lmrank, eicosanoids) {
     lmrank %>%

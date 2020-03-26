@@ -24,10 +24,18 @@ mygrep <- function(..., word, ignorecase = TRUE, complement = FALSE) {
 }
 
 
-pub.mzrt.naive <- function(mzid, formatter = "%.4f / %.2f") {
+pub.mzrt.naive <- function(mzid, formatter = "%.4f / %.4f") {
     sprintf(formatter,
             as.numeric(gsub("_.*", "", gsub("mzid_", "", mzid))),
             as.numeric(gsub(".*_", "", mzid)))
+}
+
+mzrt.standardize <- function(mzid, formatter = "mzid_%.6f_%.4f") {
+    lapply(mzid, function(id) {
+        masscharge <- strsplit(id, "_")[[1]][1] %>% as.numeric
+        retentiontime <- strsplit(id, "_")[[1]][2] %>% as.numeric
+        sprintf(formatter, masscharge, retentiontime)
+    }) %>% unlist
 }
 
 pub.mzrt <- function(mzid,
@@ -269,8 +277,10 @@ stepwise.bonfp <- function(full.model,
 
 #' Formats p values
 pub.p <- function(p) {
-  p <- as.numeric(p)
-  ifelse(p < 0.01, ifelse(p<0.001, "p<0.001", sprintf("%.3f", p)), sprintf("%.2f", p))
+    p <- as.numeric(p)
+    case_when(p<0.001 ~ "<0.001",
+              p < 0.01 ~ sprintf("%.3f", p),
+              TRUE ~ sprintf("%.2f", p))
 }
 
 ctolist <- function(c) {
@@ -334,12 +344,12 @@ comparecohorts <- function(fr02, fhs, mapping, eicosanoids) {
 pub.lmrank <- function(...,
                        by="term",
                        mark = "",
-                       models = c2l("MAP", "SBP", "DBP", "PP", "HT"),
+                       models = c2l("SBP", "DBP", "MAP", "PP", "HT"),
                        arrangebyp = FALSE) {
   linrunall <- dplyr::bind_rows(...) %>%
     dplyr::filter(grepl("mzid", term), qval < 0.05) %>%
     dplyr::mutate("betase" = sprintf("%.2f±%.2f", estimate, std.error),
-                  p = pub.p(p.value)) %>%
+                  p = sprintf("%0.0e", p.value)) %>%
     dplyr::select(response, term, betase, p)
   
   linrunarray <- lapply(models,
@@ -350,4 +360,16 @@ pub.lmrank <- function(...,
   linrunarray %>%
     Reduce(function(dtf1, dtf2) dplyr::full_join(dtf1, dtf2, by=by, suffix=c(".1", ".2")), .) %>%
     dplyr::arrange(term)
+}
+
+bionames <- function(x) {
+    name <- gsub("Novel EIC_", "Novel-", x) %>%
+        gsub("EIC_", "Putative-", .) %>%
+        gsub("Eicosanoid_", "", .) %>%
+        gsub("FFA", "", .) %>%
+        gsub(" *\\[M-H\\]", "", .) %>%
+        gsub("[ _]", "", .) %>%
+        gsub(" ", "-", .) %>%
+        gsub(";", "; ", .) %>%
+        gsub("alpha", "α", .)
 }
