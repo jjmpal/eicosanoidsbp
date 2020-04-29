@@ -9,11 +9,15 @@ rrnmr/
 ├── README.md                       # project overview
 ├── LICENCE                         # project licence
 ├── articleone.Rmd                  # Main computation file
+├── articleone-importer.R           # Collection of functions for data import and definition
+├── articleone-plots.R              # Collection of functions for plotting
+├── articleone-replication.R        # Dummy-function containing results for the replicated analyses
+├── articleone-plots.R              # Collection of functions for defining the risk score
+├── articleone-tables.R             # Collection of functions for creating characteristics and tables
+├── articleone.Rmd                  # Main computation file
+├── articleone.Rmd                  # Main computation file
 ├── gwas.Rmd                        # GWAS pre and post-processing
 ├── mendelianrandomization.Rmd      # Perform Mendelian randomization using GWAS summary data
-├── articleone-supplement.Rmd       # Generates docx for the Supplement
-├── articleone-presentation.Rmd     # Generates pptx for the presentation
-├── plotmziddistributions.R         # Draws some distribution plots
 └── scripts                         # Test files (alternatively `spec` or `tests`)
     ├── runoneplink.sh              # Script for data file conversion
     ├── joinplinksforpca.sh         # Script for calculating PCA
