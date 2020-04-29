@@ -62,7 +62,7 @@ getrsid <- function(snpmart, chr, pos) {
 # Variables for GWAS
 
 ```{r batch, eval = FALSE}
-pheno.batch <- read_tsv("/csc/fr_metagenome/pheno/FR02_pheno.txt") %>%
+pheno.batch <- read_tsv("FR02_pheno.txt") %>%
     select(Sample_ID, BATCH)
 ```
 
@@ -90,7 +90,7 @@ covariates <- left_join(pheno.riskscores, pheno.batch, by = "Sample_ID") %>%
 
 ```{r export MR data, eval = FALSE}
 lapply(seq(1, 22), function(x, df) {
-    gwas.samples <- read_delim(sprintf("/csc/fr_metagenome/gwas/fr0207_METAG_chr%s.samples", x), " ")
+    gwas.samples <- read_delim(sprintf("fr0207_METAG_chr%s.samples", x), " ")
     joined <- gwas.samples %>%
         filter(ID_1 != 0) %>%
         left_join(., df, by = c("ID_1" = "Sample_ID")) %>%
@@ -128,7 +128,7 @@ lapply(seq(1, 22), function(x, df) {
 For running the snptest
 
 ```
-for n in $(seq 1 22); do grun.py -n "gwas-$n" -c "/homes/jpalmu/phd/research/gwas/palmu-snptest-example.sh $n" -q havulinna.q --log-dir logs/; done
+for n in $(seq 1 22); do grun.py -n "gwas-$n" -c "palmu-snptest.sh $n" -q havulinna.q --log-dir logs/; done
 ```
 
 ## Read gwas results

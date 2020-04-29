@@ -5,6 +5,8 @@ This repository contains computational notebook for the first scientific article
 File                        | Purpose
 --------------------------- | -----------------------------------
 articleone.Rmd              | Generates docx of the Results
+gwas.Rmd                    | Describes the GWAS pre-processing and post-processing.
+mendelianrandomization.Rmd  | Perform Mendelian randomization using GWAS summary data
 articleone-supplement.Rmd   | Generates docx for the Supplement
 articleone-presentation.Rmd | Generates pptx for the presentation
 plotmziddistributions.R     | Draws some distribution plots
