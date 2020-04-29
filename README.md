@@ -1,6 +1,6 @@
-# Aritcleone: Eicosanoids as Mediators of Hypertension and Hypertension-Related Cardiovascular Disease
+# Eicosanoid Inflammatory Mediators Are Robustly Associated with Blood Pressure in the General Population
 
-This repository contains computational notebook for the first scientific article of my thesis. 
+This repository contains computational the source code for our manuscript doi:10.1101/2020.02.08.20021022 currelty under review.
 
 File                        | Purpose
 --------------------------- | -----------------------------------
@@ -10,20 +10,6 @@ mendelianrandomization.Rmd  | Perform Mendelian randomization using GWAS summary
 articleone-supplement.Rmd   | Generates docx for the Supplement
 articleone-presentation.Rmd | Generates pptx for the presentation
 plotmziddistributions.R     | Draws some distribution plots
-
-
-## Dependencies
-
-R Markdown files benefit from some general purpose functions of *TurkuMetabolite*.
-
-TurkuMetabolite can be installed in Rstudio by SSH
-
-```
-cred <- git2r::cred_ssh_key("~/.ssh/id_rsa.pub", "~/.ssh/id_rsa")                           
-devtools::install_git(repo, credentials = cred) 
-```
-
-Mostly for dataimport some functions of *biodataCore* are also used. Namely *TurkuMetabolite* has dependencies for *biodatacore/biodatacoreImport*, *biodatacore/biodatacoreUtils*, and *biodatacore/biodatacoreSmallMolecules*.
-
-
-
+scripts/runoneplink.sh      | Script for data file conversion
+scripts/joinplinksforpca.sh | Script for calculating PCA
+scripts/snptest.sh          | Script for running GWAS using SNPTEST
