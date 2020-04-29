@@ -132,3 +132,27 @@ plot.riskmodel <- function(riskmodel.fhs,
     
     ggsave(file = file, plot = g.riskforest, height = 3, width = 6, dpi = 300)
 }
+
+plot.subgroupanalysis <- function(df, subgroups = c("gBMI" = "BMI",
+                                                    "gGFR" = "CKD",
+                                                    "ASA" = "Aspirin",
+                                                    "asthma" = "Asthma",
+                                                    "gAGE" = "Age")) {
+    ggplot(data = df, aes(x = model, y = estimate, ymin = conf.low, ymax = conf.high)) +
+        facet_wrap(~subgroup,
+                   strip.position="left",
+                   ncol = 1,
+                   scales = "free_y",
+                   labeller = labeller(subgroup = subgroups)) +
+        geom_pointrange(size = 0.2) +
+        geom_errorbar(cex = 0.5, width = 0.4) + 
+        geom_hline(yintercept = 0, linetype = 2) +
+        ylab("Change in systolic BP per 1-SD change in risk score, mmHg") +
+        theme_classic() +
+        theme(axis.title.y=element_blank(),
+              axis.ticks.y=element_blank(),
+              strip.placement = "outside",
+              strip.background = element_blank(),
+              panel.spacing = unit(1, "lines"))+
+        coord_flip()
+}

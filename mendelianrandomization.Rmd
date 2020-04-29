@@ -1,0 +1,127 @@
+---
+title: "Eicosanoids mediators of hypertension: gwas"
+author: "Joonatan Palmu"
+date: "`r format(Sys.time(), '%d.%m.%Y')`"
+---
+
+
+```{r options, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE,
+                      results='asis', cache=FALSE, warning=FALSE)
+options(knitr.kable.NA = "")
+now <- format(Sys.time(), '%Y%m%d-%H%M%S')
+```
+
+```{r Remove temporary data, include = FALSE}
+unlink("cache", recursive=TRUE)
+dir.create("cache", showWarnings = FALSE)
+dir.create("report", showWarnings = FALSE)
+```
+
+# Libraries
+
+<details>
+  <summary>Open/Close</summary>
+
+```{r libraries, results = 'hide'}
+library(knitr)
+library(tidyr)
+library(broom)
+library(readr)
+library(dplyr)
+library(purrr)
+library(parallel)
+library(data.table)
+library(TwoSampleMR)
+```
+
+</details>
+
+```{r download outcomes}
+ao <- available_outcomes() 
+```
+
+```{r select traits}
+traits <- ao %>% filter(grepl("Systolic blood pressure", trait)) %>%
+    arrange(desc(sample_size))
+```
+
+```{r traits}
+traits %>%
+    select(id, trait, consortium, author, sample_size) %>%
+    kable
+```
+
+
+```{r test}
+exposure_dat <- read_exposure_data(
+    filename = 'eicgwas.csv',
+    sep = ',',
+    snp_col = 'snip',
+    beta_col = 'frequentist_add_beta_1',
+    se_col = 'frequentist_add_se_1',
+    effect_allele_col = 'alleleA',
+    phenotype_col = 'Phenotype',
+    units_col = 'units',
+    other_allele_col = 'alleleB',
+    eaf_col = 'all_maf',
+    samplesize_col = 'samplesize',
+    ncase_col = 'ncase',
+    ncontrol_col = 'ncontrol',
+    gene_col = 'gene',
+    pval_col = 'frequentist_add_pvalue')
+
+exposure_dat
+
+%>%
+    clump_data
+```
+
+```{r Exposures}
+exposure_dat %>%
+    select(SNP,
+           chr.exposure,
+           effect_allele.exposure,
+           other_allele.exposure,
+           eaf.exposure,
+           beta.exposure,
+           se.exposure,
+           pval.exposure,
+           chr.exposure) %>%
+    mutate(pval.exposure = sprintf("%.1e", pval.exposure),
+           chr.exposure = sprintf("%i", chr.exposure)) %>%
+    mutate_if(is.numeric, round, 3) %>%
+    flextable
+
+    kable
+```
+
+```{r analysis}
+outcome_dat <- extract_outcome_data(exposure_dat$SNP,
+                                    traits$id[1],
+                                    traits$id,
+                                    proxies = 1,
+                                    rsq = 0.8,
+                                    align_alleles = 1,
+                                    palindromes = 1,
+                                    maf_threshold = 0.3)
+
+dat <- harmonise_data(exposure_dat, outcome_dat, action = 2)
+
+mr_results <- mr(dat,  method_list = c("mr_simple_mode",
+                                       "mr_egger_regression",
+                                       "mr_weighted_median",
+                                       "mr_ivw",
+                                       "mr_weighted_mode"))
+```
+
+```{r mrbase results}
+mr_results %>%
+    dplyr::mutate(qval = p.adjust(pval, method="BH")) %>%
+    arrange(pval) %>%
+    select(method, b, pval, qval) %>%
+    mutate_if(is.numeric, round, 3) %>%
+    kable
+```
+
+

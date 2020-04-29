@@ -373,3 +373,37 @@ bionames <- function(x) {
         gsub(";", "; ", .) %>%
         gsub("alpha", "α", .)
 }
+
+subgroupanalysis <- function(df, extra, medianage, response = "SBP") {
+    stopifnot(!missing(df), !missing(extra), !missing(medianage))
+    
+    ret.low <- calculateglm(dset = df %>% dplyr::filter_at(vars(extra), all_vars(. == 0)),
+                            loops =  "fwdbonf_riskpersd",
+                            covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab"),
+                            responses = response,
+                            filter = "risk") %>%
+        mutate(model = case_when(extra %in% c("asthma", "ASA") ~ "No",
+                                 extra == "gGFR" ~ sprintf("GFR < 90"),
+                                 extra == "gBMI" ~ sprintf("BMI < 30"),
+                                 extra == "gAGE" ~ sprintf("age < %s", medianage)))
+    
+    ret.high <-  calculateglm(dset = df %>% dplyr::filter_at(vars(extra), all_vars(. == 1)),
+                       loops = "fwdbonf_riskpersd",
+                       covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab"),
+                       responses = response,
+                       filter = "risk") %>%
+        mutate(model = case_when(extra %in% c("asthma", "ASA") ~ "Yes",
+                                 extra == "gGFR" ~ sprintf("GFR ≥ 90"),
+                                 extra == "gBMI" ~ sprintf("BMI ≥ 30"),
+                                 extra == "gAGE" ~ sprintf("age ≥ %s", medianage)))
+    
+    ret.interaction <-  calculateglm(dset = df,
+                       loops = "fwdbonf_riskpersd",
+                       covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab",
+                                      sprintf("%s:fwdbonf_riskpersd", extra)),
+                       responses = response,
+                       filter = "fwdbonf_riskpersd:") %>%
+        mutate(model = "interaction")
+    
+    rbind(ret.low, ret.high, ret.interaction)
+}

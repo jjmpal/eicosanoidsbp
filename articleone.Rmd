@@ -56,6 +56,8 @@ library(dendextend)
 library(ggpubr)
 library(readr)
 library(heatmaply)
+library(GeneNet)
+library(Rgraphviz)
 ```
 
 
@@ -278,7 +280,6 @@ full_join(forest.fr02, forest.fhs, by = "term", suffix = c(".fr02", ".fhs")) %>%
     select(mzrt, name, contains("mean_ci"), contains("p.value")) %>%
     mutate_at(vars(contains("p.value")), .funs = format,  digits=3, scientific=TRUE) %>%
     arrange(mzrt) %>%
-    
     kable
 ```
 
@@ -361,6 +362,112 @@ plot.riskmodel(riskmodel.fhs,
 
 <img src = "cache/riskforest-sbp.png" />
 
+# Extra analyses in review process
+
+
+## Sub-group analyses
+
+Sub-group analyses by GFR, Aspirin, Asthma, and Age. 
+
+```{r subgroups}
+rset.extra <- 
+    rset %>% mutate(gBMI = as.factor(ifelse(BMI < 30, 0, 1)),
+                    gAGE = as.factor(ifelse(AGE < median(AGE), 0, 1)),
+                    asthma = as.factor(PREVAL_ASTHMA),
+                    ASA = as.factor(ASA),
+                    GFR = 0.993^round(AGE) *
+                        case_when(sex == 1 & KREA_ENTS <= 62 ~ 144*(KREA_ENTS/61.9)^-0.329, 
+                                  sex == 1 & KREA_ENTS >  62 ~ 144*(KREA_ENTS/61.9)^-1.209,
+                                  sex == 0 & KREA_ENTS <= 80 ~ 141*(KREA_ENTS/79.6)^-0.411,
+                                  sex == 0 & KREA_ENTS >  80 ~ 141*(KREA_ENTS/79.6)^-1.209),
+                    gGFR = as.factor(ifelse(GFR < 90, 0, 1))) %>%
+    filter(!is.na(gGFR), !is.na(ASA), !is.na(asthma))
+
+ret.extra <- lapply(X = c2l("gBMI", "gGFR", "ASA", "asthma", "gAGE"),
+                    FUN = function(df, extra, medianage) subgroupanalysis(df, extra, medianage),
+                    df = rset.extra,
+                    medianage = round(median(rset$AGE))) %>%
+       purrr::map_df(~as.data.frame(.x), .id="subgroup")
+
+g.extra <- plot.subgroupanalysis(ret.extra %>% filter(model != "interaction"))
+
+ggsave(file = "cache/extra.png", plot = g.extra, height = 4, width = 5, dpi = 300)
+```
+
+```{r subgroup table}
+ret.extra %>%
+    select(subgroup, term, estimate, std.error, p.value) %>%
+    kable
+```
+
+### Correlations
+
+```{r extra correlations}
+lapply(c2l("BMI", "GFR", "AGE"), function(x)
+    cor.test(rset.extra$fwdbonf_riskpersd, rset.extra[[x]], method = "pearson") %>% tidy) %>%
+    purrr::map_df(~as.data.frame(.x), .id="subgroup") %>%
+    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value))
+```
+
+```{r extra t-test}
+lapply(c2l("ASA", "ASTHMA"), function(x)
+    t.test(fwdbonf_riskpersd ~ group, data = rset.extra %>% rename(group := !!x)) %>% tidy) %>%
+    purrr::map_df(~as.data.frame(.x), .id="subgroup") %>%
+    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value))
+```
+
+### Dependency network 
+
+The dependency network for eicosanoids associated with systolic BP.
+
+```{r genenet}
+df.mzids <- filter.model(linear.lmrank, filterterm = "SBP", plimit = 0.05) %>% pull(term)
+
+df.net <- dset$data.full %>% dplyr::select_(.dots = df.mzids)
+
+net.pc <- GeneNet::ggm.estimate.pcor(df.net)
+net.edges <- GeneNet::network.test.edges(net.pc, direct = TRUE, fdr = TRUE)
+net.network <- extract.network(net.edges, method.ggm="prob",
+                               method.dir="prob",
+                               cutoff.ggm = (1-0.05/length(dset$metabolite.mzids)),
+                               cutoff.dir = (1-0.05/length(dset$metabolite.mzids)))
+
+net.gr <- network.make.graph(net.network, pub.mzrt.naive(colnames(df.net)), drop.singles=TRUE)
+
+edi <- edge.info(net.gr)
+
+```
+
+```{r network attributes}
+getnodelist <- function(list, color = "red") {
+    nodeAttrs <- list()
+    temp <- rep(color, length(list))
+    names(temp) <- list
+    nodeAttrs$fillcolor <- temp
+    nodeAttrs
+}
+
+nodeAttrs <- getnodelist(pub.mzrt.naive(forest.reg$term))
+
+
+globalAttrs = list()
+#globalAttrs$edge = list(color = "black", lty = "solid", lwd = 1, arrowsize=1)
+globalAttrs$node = list(fillcolor = "gray", shape = "ellipse")
+
+edgeAttrs <- list()
+edgeAttrs$dir <- edi$dir
+edgeAttrs$lty <- ifelse(edi$weight < 0, "dotted", "solid") # negative correlation -> dotted
+edgeAttrs$color <- ifelse(edi$dir == "none", "black", "red")
+edgeAttrs$fontsize <- 20*edi$weight/edi$weight
+edgeAttrs$label <- round(edi$weight, 2) # use partial correlation as edge labels
+```
+
+```{r plot network}
+png(file = "myplot.png", width = 2000, height = 2000, pointsize = 12, units = "px")
+plot(net.gr, attrs = globalAttrs, edgeAttrs = edgeAttrs, nodeAttrs = nodeAttrs, "fdp")
+dev.off()
+```
+
 # Supplement
 
 ## Linear and logistic regression results in FR02
@@ -386,6 +493,22 @@ typology.tbls2 <- data.frame(
 typologyformatter(data = sup.linres, font = 9, typology = typology.tbls2) %>%
         colformat_num(., col_keys = c("MZ", "RT"), digits = 4)
 
+```
+
+```{r other covariates}
+sup.riskmodel <- calculateglm(dset = rset,
+                              loops = "fwdbonf_riskpersd",
+                              covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab"),
+                              responses = c("SBP", "HT"),
+                              filter = ".") %>%
+    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f)_p=%.2E", estimate, conf.low, conf.high, p.value)) %>%
+    select(response, term, beta_ci)
+           
+sup.riskmodel %>%
+    spread(response, beta_ci) %>%
+    separate(HT, c("A", "B"), sep = "_") %>%
+    separate(SBP, c("C", "D"), sep = "_") %>%
+    typologyformatter
 ```
 
 ```{r Write docx to file, results = FALSE, include = FALSE}
