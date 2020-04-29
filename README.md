@@ -1,6 +1,7 @@
 # Eicosanoid Inflammatory Mediators Are Robustly Associated with Blood Pressure in the General Population
 
-This repository contains computational the source code for our manuscript doi:10.1101/2020.02.08.20021022 currelty under review.
+This repository contains computational the source code for our manuscript [doi:10.1101/2020.02.08.20021022](https://doi.org/10.1101/2020.02.08.20021022) currently under review. The code has two main purposes (1) to allow critical review of the manuscript and (2) to make replication of the analyses easier for the scientific community.
+
 
 File                        | Purpose
 --------------------------- | -----------------------------------
