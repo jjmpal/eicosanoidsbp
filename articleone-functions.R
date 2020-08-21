@@ -25,9 +25,15 @@ mygrep <- function(..., word, ignorecase = TRUE, complement = FALSE) {
 
 
 pub.mzrt.naive <- function(mzid, formatter = "%.4f / %.4f") {
-    sprintf(formatter,
-            as.numeric(gsub("_.*", "", gsub("mzid_", "", mzid))),
-            as.numeric(gsub(".*_", "", mzid)))
+    sprintf(formatter, getmz(mzid), getrt(mzid))
+}
+
+getmz <- function(mzid) {
+    stringr::str_split(mzid, "_") %>% sapply("[", 2) %>% sapply(as.numeric)
+}
+
+getrt <- function(mzid) {
+    stringr::str_split(mzid, "_") %>% sapply("[", 3) %>% sapply(as.numeric)
 }
 
 mzrt.standardize <- function(mzid, formatter = "mzid_%.6f_%.4f") {
@@ -132,16 +138,6 @@ regularisationmodel <- function(dset,
         broom::tidy() %>%
         dplyr::mutate(conf.low = estimate - qnorm(1- 0.05/2) * std.error,
                       conf.high = estimate + qnorm(1- 0.05/2) * std.error)
-  
-                                        # Forward selection AIC
-    regularisation$fwdaic <- step(lm(lm.lower, data=dset),
-                                  trace = 1, direction = "forward",
-                                  scope = list(lower = lm.lower, upper = lm.upper),
-                                  steps = 1000000) %>%
-        broom::tidy()
-  
-                                        # Lasso
-    regularisation$lasso <- regularisationmodel.lasso(dset, mzids, lambda)
   
     return(regularisation)
 }
@@ -385,6 +381,7 @@ subgroupanalysis <- function(df, extra, medianage, response = "SBP") {
         mutate(model = case_when(extra %in% c("asthma", "ASA") ~ "No",
                                  extra == "gGFR" ~ sprintf("GFR < 90"),
                                  extra == "gBMI" ~ sprintf("BMI < 30"),
+                                 extra == "gM01sub" ~ "No",
                                  extra == "gAGE" ~ sprintf("age < %s", medianage)))
     
     ret.high <-  calculateglm(dset = df %>% dplyr::filter_at(vars(extra), all_vars(. == 1)),
@@ -395,6 +392,7 @@ subgroupanalysis <- function(df, extra, medianage, response = "SBP") {
         mutate(model = case_when(extra %in% c("asthma", "ASA") ~ "Yes",
                                  extra == "gGFR" ~ sprintf("GFR ≥ 90"),
                                  extra == "gBMI" ~ sprintf("BMI ≥ 30"),
+                                 extra == "gM01sub" ~ "Yes",
                                  extra == "gAGE" ~ sprintf("age ≥ %s", medianage)))
     
     ret.interaction <-  calculateglm(dset = df,

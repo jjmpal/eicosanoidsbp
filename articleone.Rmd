@@ -118,7 +118,7 @@ linear.lmrank <- calculateglm(dset = dset$data.full,
                                            responses = c2l("MAP", "SBP", "DBP", "PP", "HT"),
                                            covariates = c("AGE", "sex", "BMI", "curr_smk", "curr_diab",
                                                           "HRX", "plate")) %>%
-    mutate(mzrt = pub.mzrt(term, dset$metabolite.names),
+    mutate(mzrt = pub.mzrt.naive(term),
            qval = bonf.adjust(p.value, n=5))
 ```
 
@@ -373,6 +373,7 @@ Sub-group analyses by GFR, Aspirin, Asthma, and Age.
 rset.extra <- 
     rset %>% mutate(gBMI = as.factor(ifelse(BMI < 30, 0, 1)),
                     gAGE = as.factor(ifelse(AGE < median(AGE), 0, 1)),
+                    gM01sub = as.factor(PREVAL_ANTI_INFMEDS_M01sub),
                     asthma = as.factor(PREVAL_ASTHMA),
                     ASA = as.factor(ASA),
                     GFR = 0.993^round(AGE) *
@@ -382,16 +383,28 @@ rset.extra <-
                                   sex == 0 & KREA_ENTS >  80 ~ 141*(KREA_ENTS/79.6)^-1.209),
                     gGFR = as.factor(ifelse(GFR < 90, 0, 1))) %>%
     filter(!is.na(gGFR), !is.na(ASA), !is.na(asthma))
+```
 
-ret.extra <- lapply(X = c2l("gBMI", "gGFR", "ASA", "asthma", "gAGE"),
+```{r subgroups number of participants}
+rset.extra %>%
+    select(gBMI, gAGE, gM01sub, asthma, ASA, gGFR) %>%
+    gather(key, value) %>%
+    group_by(key) %>%
+    summarize(N = sum(value == 1)) %>%
+    kable
+```
+
+```{r subgroup models}
+ret.extra <- lapply(X = c2l("gBMI", "gGFR", "ASA", "asthma", "gAGE", "gM01sub"),
                     FUN = function(df, extra, medianage) subgroupanalysis(df, extra, medianage),
                     df = rset.extra,
                     medianage = round(median(rset$AGE))) %>%
-       purrr::map_df(~as.data.frame(.x), .id="subgroup")
+    purrr::map_df(~as.data.frame(.x), .id="subgroup")
+
 
 g.extra <- plot.subgroupanalysis(ret.extra %>% filter(model != "interaction"))
 
-ggsave(file = "cache/extra.png", plot = g.extra, height = 4, width = 5, dpi = 300)
+ggsave(file = "cache/extra.png", plot = g.extra, height = 4, width = 5.2, dpi = 300)
 ```
 
 ```{r subgroup table}
@@ -406,14 +419,16 @@ ret.extra %>%
 lapply(c2l("BMI", "GFR", "AGE"), function(x)
     cor.test(rset.extra$fwdbonf_riskpersd, rset.extra[[x]], method = "pearson") %>% tidy) %>%
     purrr::map_df(~as.data.frame(.x), .id="subgroup") %>%
-    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value))
+    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value)) %>%
+    kable
 ```
 
 ```{r extra t-test}
-lapply(c2l("ASA", "ASTHMA"), function(x)
+lapply(c2l("ASA", "ASTHMA", "gM01sub"), function(x)
     t.test(fwdbonf_riskpersd ~ group, data = rset.extra %>% rename(group := !!x)) %>% tidy) %>%
     purrr::map_df(~as.data.frame(.x), .id="subgroup") %>%
-    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value))
+    mutate(beta_ci = sprintf("%.2f (%.2f–%.2f) p=%.2E", estimate, conf.low, conf.high, p.value)) %>%
+    kable
 ```
 
 ### Dependency network 
@@ -473,11 +488,11 @@ dev.off()
 ## Linear and logistic regression results in FR02
 
 ```{r linear results for supplement}
-linear.lmrank.names <- dset$metabolite.names %>% select(mzid, MZ, RT)
-
 sup.linres <- pub.lmrank(linear.lmrank) %>%
-    right_join(linear.lmrank.names, ., by = c("mzid" = "term")) %>%
-    select(-mzid)
+    mutate(MZ = getmz(term),
+           RT = getrt(term)) %>%
+    select(-term) %>%
+    select(MZ, RT, everything()) 
 
 typology.tbls2 <- data.frame(
   col_keys = colnames(sup.linres),

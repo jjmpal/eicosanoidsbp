@@ -91,8 +91,6 @@ exposure_dat %>%
     mutate(pval.exposure = sprintf("%.1e", pval.exposure),
            chr.exposure = sprintf("%i", chr.exposure)) %>%
     mutate_if(is.numeric, round, 3) %>%
-    flextable
-
     kable
 ```
 

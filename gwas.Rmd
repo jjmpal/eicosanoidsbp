@@ -34,8 +34,6 @@ library(purrr)
 library(ggplot2)
 library(parallel)
 library(biomaRt)
-require(qqplotr)
-library(GWASTools)
 ```
 
 </details>
@@ -62,7 +60,7 @@ getrsid <- function(snpmart, chr, pos) {
 # Variables for GWAS
 
 ```{r batch, eval = FALSE}
-pheno.batch <- read_tsv("FR02_pheno.txt") %>%
+pheno.batch <- read_tsv("/csc/fr_metagenome/pheno/FR02_pheno.txt") %>%
     select(Sample_ID, BATCH)
 ```
 
@@ -90,7 +88,7 @@ covariates <- left_join(pheno.riskscores, pheno.batch, by = "Sample_ID") %>%
 
 ```{r export MR data, eval = FALSE}
 lapply(seq(1, 22), function(x, df) {
-    gwas.samples <- read_delim(sprintf("fr0207_METAG_chr%s.samples", x), " ")
+    gwas.samples <- read_delim(sprintf("/csc/fr_metagenome/gwas/fr0207_METAG_chr%s.samples", x), " ")
     joined <- gwas.samples %>%
         filter(ID_1 != 0) %>%
         left_join(., df, by = c("ID_1" = "Sample_ID")) %>%
@@ -128,25 +126,21 @@ lapply(seq(1, 22), function(x, df) {
 For running the snptest
 
 ```
-for n in $(seq 1 22); do grun.py -n "gwas-$n" -c "palmu-snptest.sh $n" -q havulinna.q --log-dir logs/; done
+for n in $(seq 1 22); do grun.py -n "gwas-$n" -c "/homes/jpalmu/phd/research/gwas/palmu-snptest-example.sh $n" -q havulinna.q --log-dir logs/; done
 ```
 
 ## Read gwas results
 
 ```{r gwas results}
-results <- lapply(seq(1, 22), function(x) {
+results <- mclapply(seq(1, 22), function(x) {
     read_delim(sprintf("results/output_%s.out", x), " ", skip = 13)
-})
+}, mc.cores = 8)
 
 results.combined <- results %>%
     map_df(~as.data.frame(.x)) %>%
     mutate(chr = as.numeric(gsub("chr(.*):.*", "\\1", rsid)),
            start = as.numeric(gsub(".*:([^_]*)_.*", "\\1", rsid))) %>%
-    filter(!is.na(start), !is.na(chr)) %>%
-    filter(cohort_1_hwe > 1e-10,
-           all_maf > 0.01,
-           nchar(alleleA) == 1,
-           nchar(alleleB) == 1) 
+    filter(!is.na(start), !is.na(chr))
 ```
 
 # Manhattan plot
@@ -184,16 +178,6 @@ ggsave("cache/manhattan.png", g.manhattan, width = 10, height = 4, unit = "in")
 
 <img src = "cache/manhattan.png" >
 
-# QQ-plot
-
-```{r qqplot}
-png("cache/qqplot.png", 1000, 1000)
-qqPlot(results.combined %>%
-       dplyr::filter(!(chr == 11 & frequentist_add_pvalue < 5e-8)) %>%
-       pull(frequentist_add_pvalue))
-dev.off()
-```
-
 # Exporting results for MR
 
 ```{r test}
@@ -223,8 +207,7 @@ write_csv(results.formrbase %>% filter(!is.na(snip)), path = "eicgwas.csv")
 results.formrbase %>%
     group_by(chr) %>%
     arrange(frequentist_add_pvalue) %>%
-    top_n(2) %>%
-    dplyr::select(snip, chr, start, frequentist_add_pvalue)
+    top_n(2) %>% dplyr::select(snip, chr, start, frequentist_add_pvalue)
 ```
 
 

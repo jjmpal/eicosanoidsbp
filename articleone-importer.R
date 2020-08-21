@@ -20,17 +20,23 @@ importdata <- function(logtransform = FALSE,
     return(dset)
 }
 
-importfinriskidata <- function(
-                               fmeta = "eicdata/metabolites/fr02-biodatacoreImport-meta.rds",
-                               fabund = "eicdata/metabolites/fr02-eicosanoids-MAD.rds",
-                               by.y = "key",
-                               by.x = "sample_run_id") {
-    abund <- readRDS(fabund)
-    meta <- readRDS(fmeta)
+myreaddata <- function(file) {
+    message(file)
+    if (grepl("fr02-biodatacoreImport-meta.rds$", file)) 
+        readRDS(file) %>% dplyr::select(-contains("ANTI_INFMEDS_M01sub"))
+    else if (grepl("2015_60_Salomaa_Jain_", file))
+        read_tsv(file) %>% dplyr::select(Sample_ID, contains("ANTI_INFMEDS_M01sub"))
+    else if (grepl("MAD.tsv.gz$", file))
+        read_tsv(file) %>% dplyr::select(Sample_ID, contains("mzid_"))
+}
 
-    dat <- merge(meta, abund$data, by.x = by.x, by.y = by.y, all = TRUE)
-
-  filtered_dset <- dat %>%
+importfinriskidata <- function(files = c("eicdata/metabolites/fr02-biodatacoreImport-meta.rds",
+                                   "eicdata/metabolites/fr02-eicosanoids-MAD.tsv.gz",
+                                   "eicdata/metabolites/2015_60_Salomaa_Jain_dataFR02_FU17_2020-02-19.txt.gz"),
+                               by = "Sample_ID") {
+    dat <- files %>% lapply(FUN = myreaddata) %>% purrr::reduce(left_join, by = by)
+    
+    filtered_dset <- dat %>%
       dplyr::filter(!is.na(Sample_ID),
                     !is.na(SYSTM),
                     !is.na(DIASM),
@@ -89,10 +95,7 @@ importfinriskidata <- function(
                   MAP = 2./3.*DBP + 1./3.*SBP)
 
   return(list(data.full = filtered_dset, 
-              metabolite.names = abund$mapping,
-              metabolite.mzids = abund$mapping %>% pull(mzid),
-              original.abund.dim = dim(abund$data),
-              original.meta.dim = dim(meta)))
+              metabolite.mzids = filtered_dset %>% colnames %>% mygrep(word = "mzid")))
 }
 
 

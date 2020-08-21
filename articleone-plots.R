@@ -136,6 +136,7 @@ plot.riskmodel <- function(riskmodel.fhs,
 plot.subgroupanalysis <- function(df, subgroups = c("gBMI" = "BMI",
                                                     "gGFR" = "CKD",
                                                     "ASA" = "Aspirin",
+                                                    "gM01sub" = "NSAID",
                                                     "asthma" = "Asthma",
                                                     "gAGE" = "Age")) {
     ggplot(data = df, aes(x = model, y = estimate, ymin = conf.low, ymax = conf.high)) +
